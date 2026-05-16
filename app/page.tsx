@@ -5,7 +5,15 @@ import Link from "next/link";
 import { Order } from "@/types/order";
 import { getOrders, seedSampleData } from "@/lib/storage";
 import { sampleOrders } from "@/lib/sampleData";
-import { calcFinancials, formatCurrency, formatDate, getDeliveryStatus, getPaymentStatus } from "@/lib/utils";
+import {
+  calcFinancials,
+  calcOrderProfit,
+  calcOrderRevenue,
+  formatCurrency,
+  formatDate,
+  getDeliveryStatus,
+  getPaymentStatus,
+} from "@/lib/utils";
 import StatCard from "@/components/ui/StatCard";
 import Badge from "@/components/ui/Badge";
 
@@ -18,11 +26,20 @@ export default function DashboardPage() {
   }, []);
 
   const financials = calcFinancials(orders);
+
+  // Counts using the array-based jersey structure
+  const totalJerseys = financials.totalJerseys;
   const openPaymentOrders = orders.filter((o) => !o.isPaid);
-  const notArrivedOrders = orders.filter((o) => !o.hasArrived && o.isOrdered);
-  const arrivedNotPickedUp = orders.filter((o) => o.hasArrived && !o.isPickedUp);
-  const paidCount = orders.filter((o) => o.isPaid).length;
-  const arrivedCount = orders.filter((o) => o.hasArrived).length;
+  // Not-arrived: orders where at least one jersey hasn't arrived
+  const notArrivedOrders = orders.filter((o) => o.jerseys.some((j) => !j.hasArrived));
+  const arrivedNotPickedUp = orders.filter(
+    (o) => o.jerseys.every((j) => j.hasArrived) && o.jerseys.some((j) => !j.isPickedUp)
+  );
+
+  // Recent orders sorted by date descending
+  const recentOrders = [...orders]
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .slice(0, 5);
 
   return (
     <div className="space-y-8">
@@ -40,20 +57,20 @@ export default function DashboardPage() {
         </Link>
       </div>
 
-      {/* Haupt-Statistiken */}
+      {/* Main stat cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard
-          title="Bestellungen gesamt"
+          title="Bestellungen"
           value={String(orders.length)}
-          subtitle={`${paidCount} bezahlt · ${orders.length - paidCount} offen`}
+          subtitle={`${orders.filter((o) => o.isPaid).length} bezahlt · ${openPaymentOrders.length} offen`}
           icon="📋"
           accent="default"
         />
         <StatCard
-          title="Angekommen"
-          value={String(arrivedCount)}
-          subtitle={`${arrivedNotPickedUp.length} noch nicht abgeholt`}
-          icon="📦"
+          title="Trikots gesamt"
+          value={String(totalJerseys)}
+          subtitle={`${arrivedNotPickedUp.length} angekommen, nicht abgeholt`}
+          icon="👕"
           accent="blue"
         />
         <StatCard
@@ -64,15 +81,15 @@ export default function DashboardPage() {
           accent={openPaymentOrders.length > 0 ? "red" : "green"}
         />
         <StatCard
-          title="Ausstehende Lieferungen"
+          title="Nicht angekommen"
           value={String(notArrivedOrders.length)}
-          subtitle="Bestellt, noch nicht da"
+          subtitle="Bestellungen mit offener Lieferung"
           icon="🚚"
           accent={notArrivedOrders.length > 0 ? "orange" : "green"}
         />
       </div>
 
-      {/* Finanz-Statistiken */}
+      {/* Finance cards */}
       <div>
         <h2 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider mb-3">Finanzen</h2>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -100,11 +117,12 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Warnungen */}
+      {/* Warning sections */}
       {(openPaymentOrders.length > 0 || notArrivedOrders.length > 0) && (
         <div className="space-y-3">
           <h2 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider">Aktionsbedarf</h2>
 
+          {/* Open payments warning */}
           {openPaymentOrders.length > 0 && (
             <div className="bg-red-500/10 border border-red-500/20 rounded-2xl p-4">
               <div className="flex items-center gap-2 mb-3">
@@ -123,13 +141,21 @@ export default function DashboardPage() {
                   >
                     <div>
                       <span className="text-sm font-medium text-white">{order.customerName}</span>
-                      <span className="text-xs text-zinc-400 ml-2">{order.club} · {order.jerseyType}</span>
+                      <span className="text-xs text-zinc-400 ml-2">
+                        {order.jerseys.length} Trikot{order.jerseys.length !== 1 ? "s" : ""}
+                        {order.jerseys[0]?.club ? ` · ${order.jerseys[0].club}` : ""}
+                      </span>
                     </div>
-                    <span className="text-sm font-semibold text-red-400">{formatCurrency(order.sellingPrice)}</span>
+                    <span className="text-sm font-semibold text-red-400">
+                      {formatCurrency(calcOrderRevenue(order))}
+                    </span>
                   </Link>
                 ))}
                 {openPaymentOrders.length > 3 && (
-                  <Link href="/orders?filter=payment-open" className="text-xs text-zinc-500 hover:text-zinc-300 block text-center pt-1">
+                  <Link
+                    href="/orders?filter=payment-open"
+                    className="text-xs text-zinc-500 hover:text-zinc-300 block text-center pt-1"
+                  >
                     + {openPaymentOrders.length - 3} weitere →
                   </Link>
                 )}
@@ -137,41 +163,55 @@ export default function DashboardPage() {
             </div>
           )}
 
+          {/* Not-arrived warning */}
           {notArrivedOrders.length > 0 && (
             <div className="bg-orange-500/10 border border-orange-500/20 rounded-2xl p-4">
               <div className="flex items-center gap-2 mb-3">
                 <span className="text-orange-400 text-lg">🚚</span>
                 <h3 className="font-semibold text-orange-400 text-sm">
-                  {notArrivedOrders.length} Trikot{notArrivedOrders.length !== 1 ? "s" : ""} noch nicht angekommen
+                  {notArrivedOrders.length} Bestellung{notArrivedOrders.length !== 1 ? "en" : ""} mit ausstehender Lieferung
                 </h3>
               </div>
               <div className="space-y-2">
-                {notArrivedOrders.slice(0, 3).map((order) => (
+                {notArrivedOrders.slice(0, 3).map((order) => {
+                  const notArrived = order.jerseys.filter((j) => !j.hasArrived).length;
+                  return (
+                    <Link
+                      key={order.id}
+                      href={`/orders/${order.id}`}
+                      className="flex items-center justify-between bg-orange-500/10 hover:bg-orange-500/20 rounded-xl px-3 py-2 transition-colors"
+                    >
+                      <div>
+                        <span className="text-sm font-medium text-white">{order.customerName}</span>
+                        <span className="text-xs text-zinc-400 ml-2">
+                          {notArrived}/{order.jerseys.length} noch nicht da
+                        </span>
+                      </div>
+                      <span className="text-xs text-zinc-500">seit {formatDate(order.createdAt)}</span>
+                    </Link>
+                  );
+                })}
+                {notArrivedOrders.length > 3 && (
                   <Link
-                    key={order.id}
-                    href={`/orders/${order.id}`}
-                    className="flex items-center justify-between bg-orange-500/10 hover:bg-orange-500/20 rounded-xl px-3 py-2 transition-colors"
+                    href="/orders?filter=not-arrived"
+                    className="text-xs text-zinc-500 hover:text-zinc-300 block text-center pt-1"
                   >
-                    <div>
-                      <span className="text-sm font-medium text-white">{order.customerName}</span>
-                      <span className="text-xs text-zinc-400 ml-2">
-                        {order.club}{order.playerName ? ` · ${order.playerName}` : ""}
-                      </span>
-                    </div>
-                    <span className="text-xs text-zinc-500">seit {formatDate(order.createdAt)}</span>
+                    + {notArrivedOrders.length - 3} weitere →
                   </Link>
-                ))}
+                )}
               </div>
             </div>
           )}
         </div>
       )}
 
-      {/* Letzte Bestellungen */}
+      {/* Recent orders */}
       <div>
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-sm font-semibold text-zinc-400 uppercase tracking-wider">Letzte Bestellungen</h2>
-          <Link href="/orders" className="text-xs text-indigo-400 hover:text-indigo-300">Alle anzeigen →</Link>
+          <Link href="/orders" className="text-xs text-indigo-400 hover:text-indigo-300">
+            Alle anzeigen →
+          </Link>
         </div>
 
         {orders.length === 0 ? (
@@ -184,9 +224,13 @@ export default function DashboardPage() {
         ) : (
           <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden">
             <div className="divide-y divide-zinc-800">
-              {orders.slice(0, 5).map((order) => {
+              {recentOrders.map((order) => {
                 const pay = getPaymentStatus(order);
                 const del = getDeliveryStatus(order);
+                const profit = calcOrderProfit(order);
+                const jerseyCount = order.jerseys.length;
+                const clubs = [...new Set(order.jerseys.map((j) => j.club).filter(Boolean))];
+
                 return (
                   <Link
                     key={order.id}
@@ -197,9 +241,14 @@ export default function DashboardPage() {
                       {order.customerName.charAt(0).toUpperCase()}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-white truncate">{order.customerName}</p>
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-medium text-white truncate">{order.customerName}</p>
+                        <span className="text-xs bg-indigo-500/20 text-indigo-400 border border-indigo-500/20 rounded-full px-1.5 py-0.5 shrink-0">
+                          {jerseyCount}x
+                        </span>
+                      </div>
                       <p className="text-xs text-zinc-500 truncate">
-                        {order.club}{order.playerName ? ` · ${order.playerName} #${order.jerseyNumber}` : ""} · {order.size}
+                        {clubs.length > 0 ? clubs.join(", ") : "—"} · {formatDate(order.createdAt)}
                       </p>
                     </div>
                     <div className="flex flex-col items-end gap-1.5 shrink-0">
@@ -207,8 +256,9 @@ export default function DashboardPage() {
                         <Badge label={pay.label} color={pay.color as "green" | "red"} />
                         <Badge label={del.label} color={del.color as "gray" | "blue" | "orange" | "red"} />
                       </div>
-                      <span className="text-xs font-semibold text-emerald-400">
-                        +{formatCurrency(order.sellingPrice - order.purchasePrice)}
+                      <span className={`text-xs font-semibold ${profit >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                        {profit >= 0 ? "+" : ""}
+                        {formatCurrency(profit)}
                       </span>
                     </div>
                   </Link>

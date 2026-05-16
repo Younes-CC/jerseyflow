@@ -16,17 +16,20 @@ export default function FinancesPage() {
     setOrders(getOrders());
   }, []);
 
-  const totalRevenue = orders.reduce((s, o) => s + o.sellingPrice, 0);
-  const totalCosts = orders.reduce((s, o) => s + o.purchasePrice, 0);
+  const totalRevenue = orders.reduce((s, o) => s + o.jerseys.reduce((js, j) => js + j.sellingPrice, 0), 0);
+  const totalCosts = orders.reduce((s, o) => s + o.jerseys.reduce((js, j) => js + j.purchasePrice, 0), 0);
   const totalProfit = totalRevenue - totalCosts;
-  const openPayments = orders.filter((o) => !o.isPaid).reduce((s, o) => s + o.sellingPrice, 0);
-  const avgProfit = orders.length > 0 ? totalProfit / orders.length : 0;
-  const paidRevenue = orders.filter((o) => o.isPaid).reduce((s, o) => s + o.sellingPrice, 0);
+  const openPayments = orders.filter((o) => !o.isPaid).reduce((s, o) => s + o.jerseys.reduce((js, j) => js + j.sellingPrice, 0), 0);
+  const totalJerseys = orders.reduce((s, o) => s + o.jerseys.length, 0);
+  const avgProfit = totalJerseys > 0 ? totalProfit / totalJerseys : 0;
+  const paidRevenue = orders.filter((o) => o.isPaid).reduce((s, o) => s + o.jerseys.reduce((js, j) => js + j.sellingPrice, 0), 0);
 
   // Bestellungen nach Gewinn sortiert
-  const byProfit = [...orders].sort(
-    (a, b) => (b.sellingPrice - b.purchasePrice) - (a.sellingPrice - a.purchasePrice)
-  );
+  const byProfit = [...orders].sort((a, b) => {
+    const profitA = a.jerseys.reduce((s, j) => s + j.sellingPrice - j.purchasePrice, 0);
+    const profitB = b.jerseys.reduce((s, j) => s + j.sellingPrice - j.purchasePrice, 0);
+    return profitB - profitA;
+  });
 
   return (
     <div className="space-y-8">
@@ -48,7 +51,7 @@ export default function FinancesPage() {
         <StatCard
           title="Gesamtkosten"
           value={formatCurrency(totalCosts)}
-          subtitle={`${orders.length} Trikots eingekauft`}
+          subtitle={`${totalJerseys} Trikots eingekauft`}
           icon="🧾"
           accent="orange"
         />
@@ -134,8 +137,11 @@ export default function FinancesPage() {
             </div>
             <div className="divide-y divide-zinc-800/50">
               {byProfit.map((order) => {
-                const profit = order.sellingPrice - order.purchasePrice;
+                const rev = order.jerseys.reduce((s, j) => s + j.sellingPrice, 0);
+                const cost = order.jerseys.reduce((s, j) => s + j.purchasePrice, 0);
+                const profit = rev - cost;
                 const pay = getPaymentStatus(order);
+                const clubs = [...new Set(order.jerseys.map((j) => j.club))].join(", ");
                 return (
                   <Link
                     key={order.id}
@@ -143,11 +149,14 @@ export default function FinancesPage() {
                     className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-4 px-4 py-3 items-center hover:bg-zinc-800/40 transition-colors"
                   >
                     <div className="min-w-0">
-                      <p className="text-sm font-medium text-white truncate">{order.customerName}</p>
-                      <p className="text-xs text-zinc-500 truncate">{order.club} · {order.jerseyType}</p>
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-medium text-white truncate">{order.customerName}</p>
+                        <span className="text-xs bg-zinc-700 text-zinc-400 px-1.5 py-0.5 rounded-full shrink-0">{order.jerseys.length}x</span>
+                      </div>
+                      <p className="text-xs text-zinc-500 truncate">{clubs}</p>
                     </div>
-                    <span className="text-xs text-zinc-400 text-right whitespace-nowrap">{formatCurrency(order.purchasePrice)}</span>
-                    <span className="text-xs text-zinc-300 text-right whitespace-nowrap">{formatCurrency(order.sellingPrice)}</span>
+                    <span className="text-xs text-zinc-400 text-right whitespace-nowrap">{formatCurrency(cost)}</span>
+                    <span className="text-xs text-zinc-300 text-right whitespace-nowrap">{formatCurrency(rev)}</span>
                     <span className={`text-sm font-semibold text-right whitespace-nowrap ${profit >= 0 ? "text-emerald-400" : "text-red-400"}`}>
                       {profit >= 0 ? "+" : ""}{formatCurrency(profit)}
                     </span>

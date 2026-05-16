@@ -1,7 +1,6 @@
 // ============================================================
 // JerseyFlow - Typen-Definitionen
-// Hier definieren wir, wie eine Bestellung aussieht.
-// TypeScript nutzt das, um Fehler früh zu erkennen.
+// Neue Struktur: 1 Bestellung = 1 Kunde + mehrere Trikots
 // ============================================================
 
 export type JerseyVersion = "Fan Version" | "Player Version";
@@ -26,44 +25,57 @@ export type JerseySize =
   | "Kids L"
   | "Kids XL";
 
-// Das ist die Haupt-Datenstruktur für jede Bestellung
-export interface Order {
-  id: string; // Eindeutige ID, automatisch generiert
-  createdAt: string; // Wann die Bestellung erstellt wurde (ISO-Datum)
-  updatedAt: string; // Wann sie zuletzt bearbeitet wurde
-
-  // Kundendaten
-  customerName: string; // Name des Kunden
-  whatsapp: string; // WhatsApp oder Kontakt (optional)
-
-  // Trikot-Details
-  club: string; // Verein / Team
-  playerName: string; // Spielername auf dem Trikot (optional)
-  jerseyNumber: string; // Rückennummer (optional)
-  size: JerseySize; // Größe
-  version: JerseyVersion; // Fan oder Player Version
-  jerseyType: JerseyType; // Heim, Auswärts, Third, Spezial
-
-  // Preise
-  purchasePrice: number; // Einkaufspreis (was mein Freund bezahlt)
-  sellingPrice: number; // Verkaufspreis (was der Kunde zahlt)
-  // profit wird automatisch berechnet: sellingPrice - purchasePrice
-
-  // Status-Felder
-  isPaid: boolean; // Hat der Kunde bezahlt?
-  paymentDate: string | null; // Wann wurde bezahlt?
-  isOrdered: boolean; // Wurde das Trikot beim Lieferanten bestellt?
-  hasArrived: boolean; // Ist das Trikot angekommen?
-  isPickedUp: boolean; // Wurde das Trikot abgeholt?
-
-  // Sonstiges
-  notes: string; // Notizen / Besonderheiten
+// Ein einzelnes Trikot innerhalb einer Bestellung
+export interface JerseyItem {
+  id: string;
+  club: string;
+  playerName: string;
+  jerseyNumber: string;
+  size: JerseySize;
+  version: JerseyVersion;
+  jerseyType: JerseyType;
+  purchasePrice: number;
+  sellingPrice: number;
+  isOrdered: boolean;
+  hasArrived: boolean;
+  isPickedUp: boolean;
+  notes: string;
 }
 
-// Typ für neue Bestellungen (ohne id, createdAt, updatedAt - die werden automatisch gesetzt)
+// Eine Bestellung = ein Kunde mit beliebig vielen Trikots
+export interface Order {
+  id: string;
+  createdAt: string;
+  updatedAt: string;
+  customerName: string;
+  whatsapp: string;
+  isPaid: boolean;
+  paymentDate: string | null;
+  jerseys: JerseyItem[]; // Alle Trikots dieses Kunden
+  notes: string;
+}
+
+// Leeres Trikot als Vorlage
+export function emptyJersey(): JerseyItem {
+  return {
+    id: crypto.randomUUID(),
+    club: "",
+    playerName: "",
+    jerseyNumber: "",
+    size: "L",
+    version: "Fan Version",
+    jerseyType: "Heimtrikot",
+    purchasePrice: 0,
+    sellingPrice: 0,
+    isOrdered: false,
+    hasArrived: false,
+    isPickedUp: false,
+    notes: "",
+  };
+}
+
 export type NewOrder = Omit<Order, "id" | "createdAt" | "updatedAt">;
 
-// Filter-Optionen für die Bestellliste
 export type OrderFilter =
   | "all"
   | "payment-open"
@@ -72,10 +84,8 @@ export type OrderFilter =
   | "arrived"
   | "picked-up";
 
-// Sortier-Optionen
 export type OrderSort =
   | "date-desc"
   | "date-asc"
   | "name-asc"
-  | "profit-desc"
-  | "status";
+  | "profit-desc";

@@ -1,13 +1,22 @@
 // ============================================================
-// JerseyFlow - Hilfsfunktionen
-// Kleine Helfer für Formatierung, Berechnungen usw.
+// JerseyFlow - Hilfsfunktionen (aktualisiert für Multi-Trikot)
 // ============================================================
 
-import { Order, OrderFilter } from "@/types/order";
+import { Order, OrderFilter, JerseyItem } from "@/types/order";
 
-// Gewinn berechnen
-export function calcProfit(sellingPrice: number, purchasePrice: number): number {
-  return sellingPrice - purchasePrice;
+// Gesamtgewinn einer Bestellung (Summe aller Trikots)
+export function calcOrderProfit(order: Order): number {
+  return order.jerseys.reduce((sum, j) => sum + (j.sellingPrice - j.purchasePrice), 0);
+}
+
+// Gesamtumsatz einer Bestellung
+export function calcOrderRevenue(order: Order): number {
+  return order.jerseys.reduce((sum, j) => sum + j.sellingPrice, 0);
+}
+
+// Gesamtkosten einer Bestellung
+export function calcOrderCosts(order: Order): number {
+  return order.jerseys.reduce((sum, j) => sum + j.purchasePrice, 0);
 }
 
 // Zahl als Euro formatieren: 42 → "42,00 €"
@@ -24,19 +33,20 @@ export function formatDate(isoString: string | null): string {
   return new Intl.DateTimeFormat("de-DE").format(new Date(isoString));
 }
 
-// Finanzzusammenfassung berechnen
+// Finanzzusammenfassung über alle Bestellungen
 export function calcFinancials(orders: Order[]) {
-  const totalRevenue = orders.reduce((sum, o) => sum + o.sellingPrice, 0);
-  const totalCosts = orders.reduce((sum, o) => sum + o.purchasePrice, 0);
+  const totalRevenue = orders.reduce((sum, o) => sum + calcOrderRevenue(o), 0);
+  const totalCosts = orders.reduce((sum, o) => sum + calcOrderCosts(o), 0);
   const totalProfit = totalRevenue - totalCosts;
   const openPayments = orders
     .filter((o) => !o.isPaid)
-    .reduce((sum, o) => sum + o.sellingPrice, 0);
-  const avgProfit = orders.length > 0 ? totalProfit / orders.length : 0;
-  return { totalRevenue, totalCosts, totalProfit, openPayments, avgProfit };
+    .reduce((sum, o) => sum + calcOrderRevenue(o), 0);
+  const totalJerseys = orders.reduce((sum, o) => sum + o.jerseys.length, 0);
+  const avgProfit = totalJerseys > 0 ? totalProfit / totalJerseys : 0;
+  return { totalRevenue, totalCosts, totalProfit, openPayments, avgProfit, totalJerseys };
 }
 
-// Bestellungen nach Filter sortieren
+// Bestellungen nach Filter
 export function filterOrders(orders: Order[], filter: OrderFilter): Order[] {
   switch (filter) {
     case "payment-open":
@@ -44,37 +54,59 @@ export function filterOrders(orders: Order[], filter: OrderFilter): Order[] {
     case "paid":
       return orders.filter((o) => o.isPaid);
     case "not-arrived":
-      return orders.filter((o) => !o.hasArrived);
+      // Hat mindestens ein Trikot das noch nicht angekommen ist
+      return orders.filter((o) => o.jerseys.some((j) => !j.hasArrived));
     case "arrived":
-      return orders.filter((o) => o.hasArrived && !o.isPickedUp);
+      // Alle Trikots angekommen, aber noch nicht alle abgeholt
+      return orders.filter(
+        (o) => o.jerseys.every((j) => j.hasArrived) && o.jerseys.some((j) => !j.isPickedUp)
+      );
     case "picked-up":
-      return orders.filter((o) => o.isPickedUp);
+      return orders.filter((o) => o.jerseys.every((j) => j.isPickedUp));
     default:
       return orders;
   }
 }
 
-// Bestellungen durchsuchen (Name, Verein, Spieler)
+// Bestellungen durchsuchen
 export function searchOrders(orders: Order[], query: string): Order[] {
   if (!query.trim()) return orders;
   const q = query.toLowerCase();
   return orders.filter(
     (o) =>
       o.customerName.toLowerCase().includes(q) ||
-      o.club.toLowerCase().includes(q) ||
-      o.playerName.toLowerCase().includes(q)
+      o.jerseys.some(
+        (j) =>
+          j.club.toLowerCase().includes(q) ||
+          j.playerName.toLowerCase().includes(q)
+      )
   );
 }
 
-// Status-Label und Farbe ermitteln
+// Zahlungs-Status
 export function getPaymentStatus(order: Order): { label: string; color: string } {
   if (order.isPaid) return { label: "Bezahlt", color: "green" };
-  return { label: "Offen", color: "red" };
+  return { label: "Zahlung offen", color: "red" };
 }
 
+// Liefer-Status basierend auf allen Trikots
 export function getDeliveryStatus(order: Order): { label: string; color: string } {
-  if (order.isPickedUp) return { label: "Abgeholt", color: "gray" };
-  if (order.hasArrived) return { label: "Angekommen", color: "blue" };
-  if (order.isOrdered) return { label: "Bestellt", color: "orange" };
+  const jerseys = order.jerseys;
+  if (jerseys.length === 0) return { label: "Kein Trikot", color: "gray" };
+  if (jerseys.every((j) => j.isPickedUp)) return { label: "Abgeholt", color: "gray" };
+  if (jerseys.every((j) => j.hasArrived)) return { label: "Angekommen", color: "blue" };
+  if (jerseys.some((j) => j.hasArrived)) {
+    const arrived = jerseys.filter((j) => j.hasArrived).length;
+    return { label: `${arrived}/${jerseys.length} angekommen`, color: "blue" };
+  }
+  if (jerseys.some((j) => j.isOrdered)) return { label: "Bestellt", color: "orange" };
+  return { label: "Nicht bestellt", color: "red" };
+}
+
+// Trikot-Status (für einzelne Trikots in der Detailansicht)
+export function getJerseyDeliveryStatus(jersey: JerseyItem): { label: string; color: string } {
+  if (jersey.isPickedUp) return { label: "Abgeholt", color: "gray" };
+  if (jersey.hasArrived) return { label: "Angekommen", color: "blue" };
+  if (jersey.isOrdered) return { label: "Bestellt", color: "orange" };
   return { label: "Nicht bestellt", color: "red" };
 }

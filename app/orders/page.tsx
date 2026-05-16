@@ -5,7 +5,15 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Order, OrderFilter, OrderSort } from "@/types/order";
 import { getOrders } from "@/lib/storage";
-import { filterOrders, formatCurrency, formatDate, getDeliveryStatus, getPaymentStatus, searchOrders } from "@/lib/utils";
+import {
+  calcOrderProfit,
+  filterOrders,
+  formatCurrency,
+  formatDate,
+  getDeliveryStatus,
+  getPaymentStatus,
+  searchOrders,
+} from "@/lib/utils";
 import Badge from "@/components/ui/Badge";
 import EmptyState from "@/components/ui/EmptyState";
 
@@ -31,16 +39,18 @@ function OrdersContent() {
     setOrders(getOrders());
   }, []);
 
-  // Filtern → Suchen → Sortieren
+  // Filter → search → sort
   let displayed = filterOrders(orders, filter);
   displayed = searchOrders(displayed, search);
   displayed = [...displayed].sort((a, b) => {
     if (sort === "date-desc") return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     if (sort === "date-asc") return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
     if (sort === "name-asc") return a.customerName.localeCompare(b.customerName);
-    if (sort === "profit-desc") return (b.sellingPrice - b.purchasePrice) - (a.sellingPrice - a.purchasePrice);
+    if (sort === "profit-desc") return calcOrderProfit(b) - calcOrderProfit(a);
     return 0;
   });
+
+  const totalJerseys = orders.reduce((sum, o) => sum + o.jerseys.length, 0);
 
   return (
     <div className="space-y-6">
@@ -48,7 +58,9 @@ function OrdersContent() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-white">Bestellungen</h1>
-          <p className="text-sm text-zinc-500 mt-0.5">{orders.length} Bestellungen insgesamt</p>
+          <p className="text-sm text-zinc-500 mt-0.5">
+            {orders.length} Bestellungen · {totalJerseys} Trikots
+          </p>
         </div>
         <Link
           href="/orders/new"
@@ -58,7 +70,7 @@ function OrdersContent() {
         </Link>
       </div>
 
-      {/* Suche + Sortierung */}
+      {/* Search + sort */}
       <div className="flex flex-col sm:flex-row gap-3">
         <input
           type="text"
@@ -79,7 +91,7 @@ function OrdersContent() {
         </select>
       </div>
 
-      {/* Filter-Tabs */}
+      {/* Filter tabs with counts */}
       <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
         {(Object.keys(filterLabels) as OrderFilter[]).map((f) => {
           const count = f === "all" ? orders.length : filterOrders(orders, f).length;
@@ -100,7 +112,7 @@ function OrdersContent() {
         })}
       </div>
 
-      {/* Ergebnisanzahl */}
+      {/* Result count */}
       {(search || filter !== "all") && (
         <p className="text-xs text-zinc-500">
           {displayed.length} Ergebnis{displayed.length !== 1 ? "se" : ""}
@@ -108,7 +120,7 @@ function OrdersContent() {
         </p>
       )}
 
-      {/* Liste */}
+      {/* Order list */}
       {displayed.length === 0 ? (
         <EmptyState
           icon="🔍"
@@ -120,7 +132,10 @@ function OrdersContent() {
           {displayed.map((order) => {
             const pay = getPaymentStatus(order);
             const del = getDeliveryStatus(order);
-            const profit = order.sellingPrice - order.purchasePrice;
+            const profit = calcOrderProfit(order);
+            const clubs = [...new Set(order.jerseys.map((j) => j.club).filter(Boolean))];
+            const jerseyCount = order.jerseys.length;
+
             return (
               <Link
                 key={order.id}
@@ -132,10 +147,14 @@ function OrdersContent() {
                   {order.customerName.charAt(0).toUpperCase()}
                 </div>
 
-                {/* Haupt-Info */}
+                {/* Main info */}
                 <div className="flex-1 min-w-0 space-y-1">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-sm font-semibold text-white">{order.customerName}</span>
+                    {/* Jersey count badge */}
+                    <span className="text-xs bg-indigo-500/20 text-indigo-400 border border-indigo-500/20 rounded-full px-2 py-0.5 font-medium">
+                      {jerseyCount} Trikot{jerseyCount !== 1 ? "s" : ""}
+                    </span>
                     {order.notes && (
                       <span className="text-xs bg-yellow-500/20 text-yellow-400 border border-yellow-500/20 rounded-full px-2 py-0.5">
                         Notiz
@@ -143,23 +162,22 @@ function OrdersContent() {
                     )}
                   </div>
                   <p className="text-xs text-zinc-400 truncate">
-                    {order.club}
-                    {order.playerName ? ` · ${order.playerName}` : ""}
-                    {order.jerseyNumber ? ` #${order.jerseyNumber}` : ""}
-                    {" · "}{order.jerseyType} · {order.version} · {order.size}
+                    {clubs.length > 0 ? clubs.join(", ") : "Kein Verein"}
                   </p>
                   <p className="text-xs text-zinc-600">{formatDate(order.createdAt)}</p>
                 </div>
 
-                {/* Rechte Seite */}
+                {/* Right side */}
                 <div className="flex flex-col items-end gap-2 shrink-0">
                   <div className="flex gap-1.5 flex-wrap justify-end">
                     <Badge label={pay.label} color={pay.color as "green" | "red"} />
                     <Badge label={del.label} color={del.color as "gray" | "blue" | "orange" | "red"} />
                   </div>
                   <div className="flex items-center gap-3 text-xs">
-                    <span className="text-zinc-500">{formatCurrency(order.sellingPrice)}</span>
-                    <span className="text-emerald-400 font-semibold">+{formatCurrency(profit)}</span>
+                    <span className={`font-semibold ${profit >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+                      {profit >= 0 ? "+" : ""}
+                      {formatCurrency(profit)}
+                    </span>
                   </div>
                 </div>
               </Link>
