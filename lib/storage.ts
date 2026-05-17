@@ -8,12 +8,50 @@ import { Order, NewOrder } from "@/types/order";
 
 const STORAGE_KEY = "jerseyflow_orders";
 
-// Alle Bestellungen laden
+// Migration: Altes Format (1 Trikot pro Bestellung) → Neues Format (jerseys-Array)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function migrateOrder(raw: any): Order {
+  // Neues Format erkennen: hat bereits ein jerseys-Array
+  if (Array.isArray(raw.jerseys)) return raw as Order;
+
+  // Altes Format umwandeln: Trikot-Felder in jerseys-Array verpacken
+  return {
+    id: raw.id,
+    createdAt: raw.createdAt,
+    updatedAt: raw.updatedAt,
+    customerName: raw.customerName ?? "",
+    whatsapp: raw.whatsapp ?? "",
+    isPaid: raw.isPaid ?? false,
+    paymentDate: raw.paymentDate ?? null,
+    notes: raw.notes ?? "",
+    jerseys: [
+      {
+        id: crypto.randomUUID(),
+        club: raw.club ?? "",
+        playerName: raw.playerName ?? "",
+        jerseyNumber: raw.jerseyNumber ?? "",
+        size: raw.size ?? "L",
+        version: raw.version ?? "Fan Version",
+        jerseyType: raw.jerseyType ?? "Heimtrikot",
+        purchasePrice: raw.purchasePrice ?? 0,
+        sellingPrice: raw.sellingPrice ?? 0,
+        isOrdered: raw.isOrdered ?? false,
+        hasArrived: raw.hasArrived ?? false,
+        isPickedUp: raw.isPickedUp ?? false,
+        notes: "",
+      },
+    ],
+  };
+}
+
+// Alle Bestellungen laden (mit automatischer Migration alter Daten)
 export function getOrders(): Order[] {
   if (typeof window === "undefined") return [];
   try {
     const data = localStorage.getItem(STORAGE_KEY);
-    return data ? JSON.parse(data) : [];
+    if (!data) return [];
+    const parsed = JSON.parse(data);
+    return parsed.map(migrateOrder);
   } catch {
     return [];
   }
